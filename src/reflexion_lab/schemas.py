@@ -16,6 +16,7 @@ class QAExample(BaseModel):
 class JudgeResult(BaseModel):
     score: int
     reason: str
+    failure_mode: str = "wrong_final_answer"
     missing_evidence: list[str] = Field(default_factory=list)
     spurious_claims: list[str] = Field(default_factory=list)
 
@@ -44,7 +45,7 @@ class RunRecord(BaseModel):
     attempts: int
     token_estimate: int
     latency_ms: int
-    failure_mode: Literal["none", "entity_drift", "incomplete_multi_hop", "wrong_final_answer", "looping", "reflection_overfit"]
+    failure_mode: Literal['none', 'entity_drift', 'incomplete_multi_hop', 'wrong_final_answer', 'looping', 'reflection_overfit','spurious_claims']
     reflections: list[ReflectionEntry] = Field(default_factory=list)
     traces: list[AttemptTrace] = Field(default_factory=list)
 

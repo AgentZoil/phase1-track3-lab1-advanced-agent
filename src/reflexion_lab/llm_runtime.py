@@ -7,10 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-os.environ["GGML_USE_METAL"] = "0"
-os.environ["LLAMA_USE_METAL"] = "0"
-
-from llama_cpp import Llama
+import openai
 
 from .prompts import (
     build_actor_prompt,
@@ -20,12 +17,8 @@ from .prompts import (
 from .schemas import QAExample, JudgeResult, ReflectionEntry
 from .utils import normalize_answer
 
-DEFAULT_MODEL_PATH = Path(__file__).resolve().parents[2] / "model" / "Phi-3-mini-4k-instruct-q4.gguf"
-MODEL_PATH = Path(os.environ.get("REFLEXION_MODEL_PATH") or DEFAULT_MODEL_PATH)
-
-
-if not MODEL_PATH.exists():
-    raise FileNotFoundError(f"Missing model file at {MODEL_PATH}. Set REFLEXION_MODEL_PATH if needed.")
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
+MODEL_NAME = os.environ.get("OPENAI_MODEL_NAME", "gpt-4o-mini")
 
 
 FAILURE_MODE_BY_QID = {
@@ -46,21 +39,12 @@ class LLMResponse:
 
 
 class LLMClient:
-    def __init__(self, model_path: Path, n_ctx: int = 4096, n_threads: int | None = None) -> None:
-        try:
-            self._client = Llama(
-                model_path=str(model_path),
-                n_ctx=n_ctx,
-                n_threads=n_threads or os.cpu_count(),
-                n_gpu_layers=0,
-            )
-        except ValueError as exc:
-            raise RuntimeError(
-                "Unable to initialize llama_cpp context. "
-                "If you're on macOS, set GGML_USE_METAL=0 before running "
-                "or rebuild/install llama-cpp-python without Metal. "
-                "Alternatively, run this on a Linux machine or another CPU-only backend."
-            ) from exc
+    def __init__(self, api_key: str | None, model_name: str) -> None:
+        if not api_key:
+            raise ValueError("OpenAI API Key is missing. Please set the OPENAI_API_KEY environment variable.")
+        
+        self._client = openai.OpenAI(api_key=api_key)
+        self._model_name = model_name
 
     def generate(
         self,
@@ -71,22 +55,23 @@ class LLMClient:
         stop: list[str] | None = None,
     ) -> LLMResponse:
         start = time.perf_counter()
-        response = self._client(
-            prompt=prompt,
+        response = self._client.chat.completions.create(
+            model=self._model_name,
+            messages=[{"role": "user", "content": prompt}],
             max_tokens=max_tokens,
             temperature=temperature,
             top_p=top_p,
-            stop=stop or [],
+            stop=stop or None,
         )
         latency_ms = (time.perf_counter() - start) * 1000
-        choice = response["choices"][0]
-        text = (choice.get("text") or choice.get("message", {}).get("content") or "").strip()
-        usage = response.get("usage", {})
+        choice = response.choices[0]
+        text = (choice.message.content or "").strip()
+        usage = response.usage
         return LLMResponse(
             text=text,
-            prompt_tokens=usage.get("prompt_tokens", 0),
-            completion_tokens=usage.get("completion_tokens", 0),
-            total_tokens=usage.get("total_tokens", usage.get("completion_tokens", 0)),
+            prompt_tokens=usage.prompt_tokens if usage else 0,
+            completion_tokens=usage.completion_tokens if usage else 0,
+            total_tokens=usage.total_tokens if usage else 0,
             latency_ms=latency_ms,
         )
 
@@ -133,14 +118,17 @@ class Runtime:
         payload = _parse_json_block(response.text)
         score = int(payload.get("score", 0))
         reason = payload.get("reason", "Judging failed to parse the model output.")
+        failure_mode = payload.get("failure_mode", "wrong_final_answer")
         missing = list(payload.get("missing_evidence", []))
         spurious = list(payload.get("spurious_claims", []))
         if not payload:
             score = 1 if normalize_answer(answer) == normalize_answer(example.gold_answer) else 0
             reason = "Fallback judgment because the model response was not JSON." if score == 0 else "Fallback awarded success on normalization match."
+            failure_mode = "wrong_final_answer"
         return JudgeResult(
             score=score,
             reason=reason,
+            failure_mode=failure_mode,
             missing_evidence=missing,
             spurious_claims=spurious,
         )
@@ -166,7 +154,7 @@ class Runtime:
         )
 
 
-RUNTIME = Runtime(LLMClient(MODEL_PATH))
+RUNTIME = Runtime(LLMClient(OPENAI_API_KEY, MODEL_NAME))
 
 
 def actor_answer(example: QAExample, attempt_id: int, agent_type: str, reflection_memory: list[str]) -> tuple[str, int, float]:

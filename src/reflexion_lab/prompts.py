@@ -15,8 +15,10 @@ ACTOR_SYSTEM = dedent(
 EVALUATOR_SYSTEM = dedent(
     """\
     You are a deterministic judge for a QA agent.
-    Each response must be valid JSON with keys score (0 or 1), reason (string),
-    missing_evidence (list), and spurious_claims (list).
+    Each response must be valid JSON with keys:
+    "score" (0 or 1), "reason" (string), "failure_mode" (string),
+    "missing_evidence" (list), and "spurious_claims" (list).
+    For failure_mode, choose one: "entity_drift", "incomplete_multi_hop", "wrong_final_answer", "looping".
     Do not add extra text outside the JSON object.
     """
 )

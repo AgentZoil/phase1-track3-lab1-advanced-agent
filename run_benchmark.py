@@ -19,7 +19,7 @@ def main(dataset: str = "data/hotpot_mini.json", out_dir: str = "outputs/sample_
     out_path = Path(out_dir)
     save_jsonl(out_path / "react_runs.jsonl", react_records)
     save_jsonl(out_path / "reflexion_runs.jsonl", reflexion_records)
-    report = build_report(all_records, dataset_name=Path(dataset).name, mode="mock")
+    report = build_report(all_records, dataset_name=Path(dataset).name, mode="openai")
     json_path, md_path = save_report(report, out_path)
     print(f"[green]Saved[/green] {json_path}")
     print(f"[green]Saved[/green] {md_path}")

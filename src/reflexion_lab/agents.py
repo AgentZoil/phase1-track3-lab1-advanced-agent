@@ -14,6 +14,7 @@ class BaseAgent:
         traces: list[AttemptTrace] = []
         final_answer = ""
         final_score = 0
+        last_failure = "none"
         for attempt_id in range(1, self.max_attempts + 1):
             answer, token_estimate, latency_ms = actor_answer(example, attempt_id, self.agent_type, reflection_memory)
             judge = evaluator(example, answer)
@@ -27,6 +28,7 @@ class BaseAgent:
             )
             final_answer = answer
             final_score = judge.score
+            last_failure = judge.failure_mode
             if judge.score == 1:
                 traces.append(trace)
                 break
@@ -40,7 +42,7 @@ class BaseAgent:
             traces.append(trace)
         total_tokens = sum(t.token_estimate for t in traces)
         total_latency = sum(t.latency_ms for t in traces)
-        failure_mode = "none" if final_score == 1 else FAILURE_MODE_BY_QID.get(example.qid, "wrong_final_answer")
+        failure_mode = "none" if final_score == 1 else last_failure
         return RunRecord(qid=example.qid, question=example.question, gold_answer=example.gold_answer, agent_type=self.agent_type, predicted_answer=final_answer, is_correct=bool(final_score), attempts=len(traces), token_estimate=total_tokens, latency_ms=total_latency, failure_mode=failure_mode, reflections=reflections, traces=traces)
 
 class ReActAgent(BaseAgent):
